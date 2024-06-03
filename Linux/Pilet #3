@@ -124,3 +124,110 @@ sudo chmod +x /usr/local/bin/zabbix_backup.sh
 
 # Schedule backup script to run daily at midnight
 (crontab -l 2>/dev/null; echo "0 0 * * * /usr/local/bin/zabbix_backup.sh") | crontab -
+
+
+//////////////////////// KOGU SCRIPT////////////////////////////////////////
+#!/bin/bash
+
+# Install necessary packages
+sudo apt update
+sudo apt install -y apache2 php libapache2-mod-php mysql-server php-mysql zabbix-server-mysql zabbix-frontend-php zabbix-agent ufw
+
+# Configure MySQL
+sudo mysql -e "CREATE DATABASE zabbix CHARACTER SET UTF8 COLLATE UTF8_BIN;"
+sudo mysql -e "CREATE USER 'zabbix'@'localhost' IDENTIFIED BY 'zabbix_password';"
+sudo mysql -e "GRANT ALL PRIVILEGES ON zabbix.* TO 'zabbix'@'localhost';"
+sudo mysql -e "FLUSH PRIVILEGES;"
+
+# Import initial schema and data
+sudo zcat /usr/share/doc/zabbix-server-mysql/create.sql.gz | mysql -uzabbix -pzabbix_password zabbix
+
+# Configure Zabbix server
+sudo sed -i 's/# DBPassword=/DBPassword=zabbix_password/' /etc/zabbix/zabbix_server.conf
+
+# Configure Zabbix frontend
+sudo tee /etc/zabbix/apache.conf <<EOL
+<VirtualHost *:80>
+    DocumentRoot /usr/share/zabbix
+    <Directory "/usr/share/zabbix">
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+    <Directory "/usr/share/zabbix/conf">
+        Require all denied
+    </Directory>
+    <FilesMatch "\.php$">
+        SetHandler application/x-httpd-php
+    </FilesMatch>
+    php_value max_execution_time 300
+    php_value memory_limit 128M
+    php_value post_max_size 16M
+    php_value upload_max_filesize 2M
+    php_value max_input_time 300
+    php_value always_populate_raw_post_data -1
+    php_value date.timezone Europe/Tallinn
+    <IfModule mod_dir.c>
+        DirectoryIndex index.php
+    </IfModule>
+</VirtualHost>
+EOL
+
+sudo a2enconf zabbix-frontend-php
+sudo systemctl restart apache2
+sudo systemctl restart zabbix-server
+sudo systemctl restart zabbix-agent
+
+# Enable Zabbix and MySQL services to start at boot
+sudo systemctl enable zabbix-server
+sudo systemctl enable zabbix-agent
+sudo systemctl enable mysql
+
+# Configure UFW to allow only necessary ports
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 10050/tcp
+sudo ufw allow 10051/tcp
+sudo ufw enable
+
+# Add DNS entries for Zabbix and MySQL servers
+sudo tee -a /etc/hosts <<EOL
+192.168.1.20 zabbix.oige.ee
+192.168.1.21 db.oige.ee
+EOL
+
+# Mount network drive and fix issue
+sudo mount -t cifs -o username=oige,password=Passw0rd //failiserver/share /mnt/backup
+sudo tee -a /etc/fstab <<EOL
+//failiserver/share /mnt/backup cifs username=oige,password=Passw0rd 0 0
+EOL
+
+# Create new group and add users
+sudo groupadd zabbixbackup
+sudo usermod -aG zabbixbackup zabbix
+
+# Create new directory on mounted network drive
+sudo mkdir /mnt/backup/zabbix
+sudo chown -R root:zabbixbackup /mnt/backup/zabbix
+sudo chmod 770 /mnt/backup/zabbix
+
+# Create backup script
+sudo tee /usr/local/bin/zabbix_backup.sh <<EOL
+#!/bin/bash
+BACKUP_DIR="/mnt/backup/zabbix"
+DB_BACKUP="\$BACKUP_DIR/zabbix_db_\$(date +\%F_\%T).sql"
+CONFIG_BACKUP="\$BACKUP_DIR/zabbix_config_\$(date +\%F_\%T).tar.gz"
+
+# Backup database
+mysqldump -uzabbix -pzabbix_password zabbix > \$DB_BACKUP
+
+# Backup configuration files
+tar -czf \$CONFIG_BACKUP /etc/zabbix
+EOL
+
+# Make script executable
+sudo chmod +x /usr/local/bin/zabbix_backup.sh
+
+# Schedule backup script to run daily at midnight
+(crontab -l 2>/dev/null; echo "0 0 * * * /usr/local/bin/zabbix_backup.sh") | crontab -
