@@ -1,0 +1,161 @@
+Samm 1: AD Domeeni ja Domeenikontrollerite seadistamine
+1.1 AD Domeeni Kontroller (AD1) seadistamine
+powershell
+ 
+# Install AD DS and DNS roles
+Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$domainNetbiosName = "OIGE"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSForest -DomainName $domainName -DomainNetbiosName $domainNetbiosName -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+1.2 Domeenikontroller (AD2) seadistamine Windows Server Core 2022-s
+powershell
+ 
+# Install AD DS role
+Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSDomainController -DomainName $domainName -Credential (Get-Credential) -SiteName "Default-First-Site-Name" -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+Samm 2: DHCP Serveri seadistamine
+2.1 DHCP Serveri seadistamine (failover partneriga)
+powershell
+ 
+# Install DHCP role
+Install-WindowsFeature -Name DHCP -IncludeManagementTools
+
+# Authorize DHCP Server in AD
+Add-DhcpServerInDC -DnsName "AD1.oige.ee" -IPAddress "x.x.x.1"
+
+# Configure DHCP scope
+$subnet = "x.x.x.0"
+$rangeStart = "x.x.x.100"
+$rangeEnd = "x.x.x.200"
+$mask = "255.255.255.0"
+$gateway = "x.x.x.1"
+$dnsServer1 = "x.x.x.1"
+$dnsServer2 = "x.x.x.2"
+$leaseTime = "4:00:00"
+
+Add-DhcpServerv4Scope -Name "Scope1" -StartRange $rangeStart -EndRange $rangeEnd -SubnetMask $mask -State Active
+Set-DhcpServerv4OptionValue -ScopeId $subnet -Router $gateway -DnsServer $dnsServer1, $dnsServer2
+
+# Configure DHCP failover
+$partnerServer = "x.x.x.2"
+Add-DhcpServerv4Failover -ComputerName "AD1" -PartnerServer $partnerServer -Name "Failover1" -Mode LoadBalance -LoadBalancePercent 50 -SharedSecret "YourSecret"
+2.2 Seadista DHCP serveri staatilised lease'd
+powershell
+ 
+# Add static leases
+Add-DhcpServerv4Reservation -ScopeId $subnet -IPAddress "x.x.x.10" -ClientId "MAC_ADDRESS_1" -Description "Windows Client"
+Add-DhcpServerv4Reservation -ScopeId $subnet -IPAddress "x.x.x.11" -ClientId "MAC_ADDRESS_2" -Description "Linux Client"
+Samm 3: DNS Serveri seadistamine
+3.1 DNS kirjed Linuxi serverite jaoks
+powershell
+ 
+Add-DnsServerResourceRecordA -Name "linux1" -ZoneName "oige.ee" -IPv4Address "x.x.x.20"
+Add-DnsServerResourceRecordA -Name "linux2" -ZoneName "oige.ee" -IPv4Address "x.x.x.21"
+Samm 4: OU-de ja kasutajate loomine
+4.1 OU-de loomine
+powershell
+ 
+# Create OUs
+New-ADOrganizationalUnit -Name "Kasutajad" -Path "DC=oige,DC=ee"
+New-ADOrganizationalUnit -Name "Arvutid" -Path "DC=oige,DC=ee"
+New-ADOrganizationalUnit -Name "Personal" -Path "DC=oige,DC=ee"
+4.2 Kasutaja loomine ja lisamine gruppi
+powershell
+ 
+# Create user Haldur and add to Domain Admins group
+$securePassword = ConvertTo-SecureString "YourSecurePassword" -AsPlainText -Force
+New-ADUser -Name "Haldur" -AccountPassword $securePassword -Enabled $true -Path "OU=Kasutajad,DC=oige,DC=ee"
+Add-ADGroupMember -Identity "Domain Admins" -Members "Haldur"
+4.3 Kasutajate importimine CSV failist
+powershell
+ 
+# Example CSV file content:
+# SamAccountName,FirstName,LastName,OU
+# jsmith,John,Smith,Kasutajad
+
+Import-Csv -Path "C:\path\to\kasutajad.csv" | ForEach-Object {
+    $password = ConvertTo-SecureString "UserDefaultPassword" -AsPlainText -Force
+    New-ADUser -SamAccountName $_.SamAccountName -GivenName $_.FirstName -Surname $_.LastName -AccountPassword $password -Enabled $true -Path "OU=$($_.OU),DC=oige,DC=ee"
+}
+Samm 5: GPO loomine
+powershell
+ 
+# Create GPO for notification
+New-GPO -Name "Teade" | New-GPLink -Target "OU=Personal,DC=oige,DC=ee"
+
+# Configure GPO to display message
+$gpo = Get-GPO -Name "Teade"
+$gpoId = $gpo.Id
+$regPath = "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System"
+Set-GPRegistryValue -Guid $gpoId -Key $regPath -ValueName "LegalNoticeCaption" -Type String -Value "Ettevõtte Turvapoliitika"
+Set-GPRegistryValue -Guid $gpoId -Key $regPath -ValueName "LegalNoticeText" -Type String -Value "Arvuti kasutamisel tuleb järgida ettevõtte turvapoliitikat ja arvuti kasutamise eeskirja."
+Samm 6: DFS teenuse seadistamine
+6.1 Paigalda DFS rollid
+powershell
+ 
+# Install DFS roles
+Install-WindowsFeature -Name FS-DFS-Namespace, FS-DFS-Replication, FS-Resource-Manager -IncludeManagementTools
+6.2 Loo DFS nimeruum ja kaustad
+powershell
+ 
+# Create DFS namespace
+New-DfsnRoot -TargetPath "\\oige.ee\Jagatud" -Type DomainV2 -Name "Jagatud" -Description "AS Oige jagatud nimeruum"
+
+# Create DFS folders
+New-DfsnFolder -Path "\\oige.ee\Jagatud\Kogukond" -TargetPath "\\AD1\Shared\Kogukond"
+New-DfsnFolder -Path "\\oige.ee\Jagatud\Isiklik" -TargetPath "\\AD1\Shared\Isiklik"
+New-DfsnFolderTarget -Path "\\oige.ee\Jagatud\Isiklik" -TargetPath "\\AD2\Shared\Isiklik"
+6.3 Loo replikatsiooni grupp
+powershell
+ 
+# Create replication group
+New-DfsReplicationGroup -GroupName "KogukondReplicationGroup"
+Add-DfsrMember -GroupName "KogukondReplicationGroup" -ComputerName "AD1"
+Add-DfsrMember -GroupName "KogukondReplicationGroup" -ComputerName "AD2"
+New-DfsrConnection -GroupName "KogukondReplicationGroup" -SourceComputerName "AD1" -DestinationComputerName "AD2" -SyncFolderPairs
+New-DfsrReplicatedFolder -GroupName "KogukondReplicationGroup" -FolderName "Kogukond" -PrimaryMember "AD1"
+Add-DfsrMembership -GroupName "KogukondReplicationGroup" -FolderName "Kogukond" -ContentPath "C:\Shared\Kogukond"
+6.4 Loo GPO kausta jagamiseks
+powershell
+ 
+# Create GPO for sharing Kogukond folder
+New-GPO -Name "Kogukond" | New-GPLink -Target "OU=Kasutajad,DC=oige,DC=ee"
+
+# Configure GPO to map network drive Y: to Kogukond folder
+$gpo = Get-GPO -Name "Kogukond"
+$drivePath = "\\oige.ee\Jagatud\Kogukond"
+Set-GPPrefRegistryValue -Guid $gpo.Id -Key "HKCU\Software\Policies\Microsoft\Windows\NetworkDriveMappings" -ValueName "Y" -Type String -Value $drivePath
+6.5 Määra FSRM abil mahupiirang ja failitüüpide piirang
+powershell
+ 
+# Set quota for Kogukond folder
+New-FsrmQuota -Path "C:\Shared\Kogukond" -Size 10GB -Description "Quota for Kogukond folder"
+
+# Set file screen for Kogukond folder
+New-FsrmFileScreen -Path "C:\Shared\Kogukond" -Template "Block Executables"
+6.6 Loo GPO Isikliku kausta jagamiseks
+powershell
+ 
+# Create GPO for personal folders
+New-GPO -Name "Isiklik" | New-GPLink -Target "OU=Kasutajad,DC=oige,DC=ee"
+
+# Configure GPO to map network drive Z: to personal folders
+$gpo = Get-GPO -Name "Isiklik"
+$drivePath = "\\oige.ee\Jagatud\Isiklik\%USERNAME%"
+Set-GPPrefRegistryValue -Guid $gpo.Id -Key "HKCU\Software\Policies\Microsoft\Windows\NetworkDriveMappings" -ValueName "Z" -Type String -Value $drivePath
+6.7 Määra FSRM abil mahupiirang Isiklikule kaustale
+powershell
+ 
+# Set quota for Isiklik folders
+New-FsrmQuota -Path "C:\Shared\Isiklik" -Size 1GB -Description "Quota for personal folders"
+Kokkuvõte
+Selles terviklahenduses on loodud ja seadistatud Active Directory domeen koos domeenikontrolleritega, DHCP server failover partneriga, DNS server Linuxi serverite A kirjega, kasutajate ja OU-de loomine, GPO loomine teavitamiseks, DFS teenuse paigaldamine ja seadistamine koos mahupiirangute ja failitüüpide piirangutega, ning kaustade jagamine kasutajatele võrgukettana.
+
+Kõik vajalikud PowerShelli käsud on lisatud ja selgitatud, et aidata teil seadistada ja hallata AS Oige IT infrastruktuuri.
