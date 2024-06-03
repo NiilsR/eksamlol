@@ -1,0 +1,127 @@
+Samm 1: Taasta ligipääs Linuxi serverile (single-user mode)
+Taaskäivita server ja vali GRUB menüüst "Recovery mode" või "Single-user mode".
+Kui jõuad shelli, muuda juurkasutaja parooli:
+ 
+ 
+passwd root
+Taaskäivita süsteem ja logi sisse uue juurkasutaja parooliga.
+Samm 2: Loo eraldi kasutaja ja seadista SSH ligipääs ainult võtmega
+Loo uus kasutaja:
+ 
+ 
+adduser uus_kasutaja
+Luba juurkasutajale sudo õigused:
+ 
+ 
+usermod -aG sudo uus_kasutaja
+Logi sisse uue kasutajana ja loo SSH võtmed:
+ 
+ 
+su - uus_kasutaja
+ssh-keygen
+Kopeeri avalik võti serverisse:
+ 
+ 
+ssh-copy-id uus_kasutaja@serveri_ip
+Konfigureeri SSH daemon ainult võtmega autentimiseks:
+ 
+ 
+sudo nano /etc/ssh/sshd_config
+# Muuda või lisa järgmised read
+PermitRootLogin no
+PasswordAuthentication no
+Taaskäivita SSH daemon:
+ 
+ 
+sudo systemctl restart sshd
+Samm 3: Taasta ligipääs andmebaasile ja WordPressile
+Muuda MySQL juurparool (MySQL versioonist sõltuvalt):
+ 
+ 
+sudo systemctl stop mysql
+sudo mysqld_safe --skip-grant-tables &
+mysql -u root
+MySQL shellis:
+sql
+ 
+FLUSH PRIVILEGES;
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'uus_parool';
+exit;
+sudo systemctl start mysql
+Taasta ligipääs WordPressile, muutes wp-config.php faili:
+ 
+ 
+sudo nano /var/www/html/wp-config.php
+# Muuda DB_USER ja DB_PASSWORD väärtusi
+define('DB_USER', 'root');
+define('DB_PASSWORD', 'uus_parool');
+Logi sisse WordPressi administraatorina ja taasta parool "Unustasin parooli" funktsionaalsuse kaudu.
+Samm 4: Uuenda WordPress ja Debian
+Uuenda WordPress admin paneelil või käsurealt:
+ 
+ 
+wp core update --path=/var/www/html
+Uuenda Debian:
+ 
+ 
+sudo apt update
+sudo apt upgrade
+sudo apt dist-upgrade
+sudo sed -i 's/bullseye/bookworm/g' /etc/apt/sources.list
+sudo apt update
+sudo apt full-upgrade
+sudo reboot
+Samm 5: Genereeri SSL sertifikaat ja seadista HTTPS
+Paigalda Certbot:
+ 
+ 
+sudo apt install certbot python3-certbot-apache
+Genereeri SSL sertifikaat ja seadista HTTPS:
+ 
+ 
+sudo certbot --apache
+Seadista automaatne ümbersuunamine HTTP-st HTTPS-ile:
+ 
+ 
+sudo nano /etc/apache2/sites-available/000-default.conf
+# Lisa järgmised read
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^/?(.*) https://%{SERVER_NAME}/$1 [R=301,L]
+Taaskäivita Apache:
+ 
+ 
+sudo systemctl restart apache2
+Samm 6: Tee DNS kirje vasemba.oige.ee jaoks
+Logi sisse DNS haldussüsteemi ja lisa A-kirje:
+css
+ 
+vasemba.oige.ee IN A serveri_ip
+Samm 7: Seadista tulemüür
+Paigalda ja seadista UFW:
+ 
+ 
+sudo apt install ufw
+sudo ufw allow OpenSSH
+sudo ufw allow 'Apache Full'
+sudo ufw enable
+Samm 8: Automaatsete varukoopiate seadistamine
+Paigalda cron ja seadista varukoopiad:
+ 
+ 
+sudo apt install cron
+crontab -e
+# Lisa järgmised read
+0 2 * * * /usr/bin/mysqldump -u root -puus_parool andmebaas > /var/backups/db_backup.sql
+0 3 * * * /bin/tar -czf /var/backups/wp_backup.tar.gz /var/www/html
+Samm 9: Paigalda paroolihaldur ja seadista DNS kirje
+Paigalda Docker ja laadige alla paroolihalduri pilt:
+ 
+ 
+sudo apt install docker.io
+sudo docker pull bitwardenrs/server:latest
+sudo docker run -d --name bitwarden -v /bw-data/:/data/ -p 80:80 bitwardenrs/server:latest
+Seadista DNS kirje paroolihaldur.oige.ee jaoks:
+css
+ 
+paroolihaldur.oige.ee IN A paroolihalduri_ip
