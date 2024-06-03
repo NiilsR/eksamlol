@@ -1,0 +1,168 @@
+Samm 1: Paigalda ja seadista BIND 9
+Valime ISC BIND 9 nimeserveri lahenduse ja paigaldame selle:
+
+bash
+ 
+#!/bin/bash
+
+# Update package list and install BIND 9
+sudo apt update
+sudo apt install -y bind9 bind9utils
+
+# Configure BIND 9 as a secondary DNS server
+cat <<EOL | sudo tee /etc/bind/named.conf.local
+zone "oige.ee" {
+    type slave;
+    file "/var/lib/bind/oige.ee.zone";
+    masters { x.x.x.x; }; # Replace x.x.x.x with the IP of the primary DNS server
+    allow-notify { x.x.x.x; }; # Replace with the IP of the primary DNS server
+};
+EOL
+
+# Set correct permissions and restart BIND 9
+sudo chown bind:bind /var/lib/bind/oige.ee.zone
+sudo systemctl restart bind9
+sudo systemctl enable bind9
+Samm 2: Tehke Windowsi DNS serveris vajalikud kirjed
+Logige sisse Windows Serverisse, avage DNS Manager, ja lisage BIND 9 sekundaarne DNS server tsooni "oige.ee" sekundaarseks nimeserveriks. Veenduge, et tsoonide ülekandmine on lubatud BIND 9 IP aadressile.
+
+Samm 3: Tehke DHCP serveris vajalikud kirjed
+Logige sisse DHCP serverisse, avage DHCP Manager ja lisage BIND 9 serveri IP aadress sekundaarse DNS serverina.
+
+Samm 4: Testi sekundaarse nimeserveri toimimist
+Testige sekundaarse nimeserveri toimimist:
+
+bash
+ 
+# Test zone transfer from primary DNS server
+dig @x.x.x.x oige.ee axfr
+Samm 5: Paranda Linuxi klient masina paketihaldur
+Uurige välja, miks paketihaldur ei tööta:
+
+bash
+ 
+# Check for errors
+sudo apt update
+# If there are issues with sources list, check and correct it
+cat /etc/apt/sources.list
+
+# Example correction for sources.list
+cat <<EOL | sudo tee /etc/apt/sources.list
+deb http://archive.ubuntu.com/ubuntu/ focal main restricted
+deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted
+deb http://archive.ubuntu.com/ubuntu/ focal universe
+deb http://archive.ubuntu.com/ubuntu/ focal-updates universe
+deb http://archive.ubuntu.com/ubuntu/ focal multiverse
+deb http://archive.ubuntu.com/ubuntu/ focal-updates multiverse
+deb http://archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu focal-security main restricted
+deb http://security.ubuntu.com/ubuntu focal-security universe
+deb http://security.ubuntu.com/ubuntu focal-security multiverse
+EOL
+
+# Update package list again
+sudo apt update
+Samm 6: Paigalda vajalikud paketid domeeniga liitumiseks
+Paigaldage vajalikud paketid ja liitke klientmasin AD domeeniga:
+
+bash
+ 
+# Install necessary packages
+sudo apt install -y realmd sssd sssd-tools libnss-sss libpam-sss adcli
+
+# Discover the AD domain
+sudo realm discover oige.ee
+
+# Join the AD domain
+sudo realm join --user=AD_ADMIN oige.ee # Replace AD_ADMIN with a real admin account
+
+# Enable home directory creation
+echo "session required pam_mkhomedir.so skel=/etc/skel umask=077" | sudo tee -a /etc/pam.d/common-session
+
+# Restart the necessary services
+sudo systemctl restart sssd
+Dokumentatsiooni loomine
+Dokumentatsiooni jaoks koosta kõik eelnevad sammud selgeks ja täpseks juhiseks ning lisa need näiteks README.md faili:
+
+markdown
+ 
+# Secondary DNS Server Configuration
+
+## BIND 9 Installation and Configuration
+
+1. **Install BIND 9**:
+    ```bash
+    sudo apt update
+    sudo apt install -y bind9 bind9utils
+    ```
+
+2. **Configure BIND 9**:
+    ```bash
+    sudo tee /etc/bind/named.conf.local <<EOF
+    zone "oige.ee" {
+        type slave;
+        file "/var/lib/bind/oige.ee.zone";
+        masters { x.x.x.x; };
+        allow-notify { x.x.x.x; };
+    };
+    EOF
+    sudo chown bind:bind /var/lib/bind/oige.ee.zone
+    sudo systemctl restart bind9
+    sudo systemctl enable bind9
+    ```
+
+3. **Update Windows DNS Server**:
+    - Open DNS Manager on Windows Server.
+    - Add the BIND 9 server IP as a secondary server for the zone "oige.ee".
+    - Ensure zone transfer is allowed to BIND 9 IP.
+
+4. **Update DHCP Server**:
+    - Open DHCP Manager.
+    - Add the BIND 9 server IP as a secondary DNS server.
+
+5. **Verify BIND 9**:
+    ```bash
+    dig @x.x.x.x oige.ee axfr
+    ```
+
+## AD Domain Join for Ubuntu Client
+
+1. **Fix APT Sources**:
+    ```bash
+    sudo apt update
+    cat /etc/apt/sources.list
+    sudo tee /etc/apt/sources.list <<EOF
+    deb http://archive.ubuntu.com/ubuntu/ focal main restricted
+    deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted
+    deb http://archive.ubuntu.com/ubuntu/ focal universe
+    deb http://archive.ubuntu.com/ubuntu/ focal-updates universe
+    deb http://archive.ubuntu.com/ubuntu/ focal multiverse
+    deb http://archive.ubuntu.com/ubuntu/ focal-updates multiverse
+    deb http://archive.ubuntu.com/ubuntu/ focal-backports main restricted universe multiverse
+    deb http://security.ubuntu.com/ubuntu focal-security main restricted
+    deb http://security.ubuntu.com/ubuntu focal-security universe
+    deb http://security.ubuntu.com/ubuntu focal-security multiverse
+    EOF
+    sudo apt update
+    ```
+
+2. **Install Required Packages**:
+    ```bash
+    sudo apt install -y realmd sssd sssd-tools libnss-sss libpam-sss adcli
+    ```
+
+3. **Join AD Domain**:
+    ```bash
+    sudo realm discover oige.ee
+    sudo realm join --user=AD_ADMIN oige.ee
+    ```
+
+4. **Configure Home Directory Creation**:
+    ```bash
+    echo "session required pam_mkhomedir.so skel=/etc/skel umask=077" | sudo tee -a /etc/pam.d/common-session
+    sudo systemctl restart sssd
+    ```
+
+## Additional Information
+
+Ensure all steps are verified and document any deviations or additional steps taken.
