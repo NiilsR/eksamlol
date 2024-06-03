@@ -1,0 +1,188 @@
+Samm 1: Paigalda ja seadista DHCP server
+Valime ISC DHCP serveri lahenduse ja paigaldame selle:
+
+bash
+ 
+#!/bin/bash
+
+# Update package list and install isc-dhcp-server
+sudo apt update
+sudo apt install -y isc-dhcp-server
+
+# Configure the DHCP server
+cat <<EOL | sudo tee /etc/dhcp/dhcpd.conf
+default-lease-time 14400;
+max-lease-time 14400;
+
+subnet x.x.x.0 netmask 255.255.255.0 {
+  range x.x.x.100 x.x.x.200;
+  option routers x.x.x.1;
+  option domain-name-servers x.x.x.x; # AS Oige primaarne AD server
+  option domain-name "oige.ee";
+  option pxelinux-pathprefix "boot/";
+  option pxelinux-configfile "pxelinux.cfg/default";
+  option tftp-server-name "x.x.x.x"; # WDS serveri IP
+  option bootfile-name "pxelinux.0";
+  next-server x.x.x.x; # WDS serveri IP
+  }
+
+# Define static IP assignments
+host workstation1 {
+  hardware ethernet xx:xx:xx:xx:xx:xx; # MAC address
+  fixed-address x.x.x.10;
+}
+host workstation2 {
+  hardware ethernet yy:yy:yy:yy:yy:yy; # MAC address
+  fixed-address x.x.x.11;
+}
+# Add more static entries as needed
+EOL
+
+# Configure the DHCP server to listen on the correct interface
+sudo sed -i 's/INTERFACESv4=""/INTERFACESv4="eth0"/' /etc/default/isc-dhcp-server
+
+# Restart DHCP server to apply changes
+sudo systemctl restart isc-dhcp-server
+sudo systemctl enable isc-dhcp-server
+Samm 2: Kontrolli, et tööjaamad saavad õiged IP aadressid
+Kontrollimiseks:
+
+bash
+ 
+# Check DHCP server status
+sudo systemctl status isc-dhcp-server
+
+# Check DHCP leases
+tail -f /var/lib/dhcp/dhcpd.leases
+Samm 3: Taasta juurkasutaja ligipääs ja uuri restarte
+Käivita server ühe kasutaja töörežiimis:
+
+bash
+ 
+# Restart the server into single-user mode
+sudo systemctl isolate rescue.target
+
+# Change the root password
+passwd root
+
+# Check log files for clues on why the server is restarting
+cat /var/log/syslog
+cat /var/log/auth.log
+dmesg | less
+
+# Check for crontab entries that might cause reboots
+crontab -l
+sudo crontab -l
+Samm 4: Suurenda juurpartitsiooni
+Oletame, et juurpartitsioon on /dev/sda1. Kasutame growpart ja resize2fs:
+
+bash
+ 
+# Install necessary tools
+sudo apt install -y cloud-guest-utils
+
+# Grow the partition
+sudo growpart /dev/sda 1
+
+# Resize the filesystem
+sudo resize2fs /dev/sda1
+
+
+
+/////////////DOKUMENTATSIOON////////////////////////
+
+# DHCP Server Configuration
+
+## DHCP Server Installation and Configuration
+
+1. **Install ISC DHCP Server**:
+    ```bash
+    sudo apt update
+    sudo apt install -y isc-dhcp-server
+    ```
+
+2. **Configure DHCP Server**:
+    ```bash
+    sudo tee /etc/dhcp/dhcpd.conf <<EOF
+    default-lease-time 14400;
+    max-lease-time 14400;
+    subnet x.x.x.0 netmask 255.255.255.0 {
+        range x.x.x.100 x.x.x.200;
+        option routers x.x.x.1;
+        option domain-name-servers x.x.x.x;
+        option domain-name "oige.ee";
+        option pxelinux-pathprefix "boot/";
+        option pxelinux-configfile "pxelinux.cfg/default";
+        option tftp-server-name "x.x.x.x";
+        option bootfile-name "pxelinux.0";
+        next-server x.x.x.x;
+    }
+    host workstation1 {
+        hardware ethernet xx:xx:xx:xx:xx:xx;
+        fixed-address x.x.x.10;
+    }
+    host workstation2 {
+        hardware ethernet yy:yy:yy:yy:yy:yy;
+        fixed-address x.x.x.11;
+    }
+    EOF
+    ```
+
+3. **Configure DHCP Server Interface**:
+    ```bash
+    sudo sed -i 's/INTERFACESv4=""/INTERFACESv4="eth0"/' /etc/default/isc-dhcp-server
+    sudo systemctl restart isc-dhcp-server
+    sudo systemctl enable isc-dhcp-server
+    ```
+
+4. **Verify DHCP Server**:
+    ```bash
+    sudo systemctl status isc-dhcp-server
+    tail -f /var/lib/dhcp/dhcpd.leases
+    ```
+
+## Root Access Recovery and Server Investigation
+
+1. **Enter Single-User Mode**:
+    ```bash
+    sudo systemctl isolate rescue.target
+    ```
+
+2. **Change Root Password**:
+    ```bash
+    passwd root
+    ```
+
+3. **Check Logs**:
+    ```bash
+    cat /var/log/syslog
+    cat /var/log/auth.log
+    dmesg | less
+    ```
+
+4. **Check Crontab**:
+    ```bash
+    crontab -l
+    sudo crontab -l
+    ```
+
+## Resize Root Partition
+
+1. **Install Tools**:
+    ```bash
+    sudo apt install -y cloud-guest-utils
+    ```
+
+2. **Grow Partition**:
+    ```bash
+    sudo growpart /dev/sda 1
+    ```
+
+3. **Resize Filesystem**:
+    ```bash
+    sudo resize2fs /dev/sda1
+    ```
+
+## Additional Information
+
+Ensure all steps are verified and document any deviations or additional steps taken.
