@@ -1,0 +1,132 @@
+Samm 1: Active Directory Domeeni ja Domeenikontrollerite seadistamine
+1.1 Windows Server 2022 AD Domeenikontrolleri seadistamine (AD1)
+powershell
+ 
+# Install AD DS and DNS roles
+Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$domainNetbiosName = "OIGE"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSForest -DomainName $domainName -DomainNetbiosName $domainNetbiosName -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+1.2 Windows Server Core 2022 AD Domeenikontrolleri seadistamine (AD2)
+powershell
+ 
+# Install AD DS role
+Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSDomainController -DomainName $domainName -Credential (Get-Credential) -SiteName "Default-First-Site-Name" -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+Samm 2: DHCP Serveri seadistamine
+2.1 DHCP Serveri seadistamine (failover partneriga)
+powershell
+ 
+# Install DHCP role
+Install-WindowsFeature -Name DHCP -IncludeManagementTools
+
+# Authorize DHCP Server in AD
+Add-DhcpServerInDC -DnsName "AD1.oige.ee" -IPAddress "x.x.x.1"
+
+# Configure DHCP scope
+$subnet = "x.x.x.0"
+$rangeStart = "x.x.x.100"
+$rangeEnd = "x.x.x.200"
+$mask = "255.255.255.0"
+$gateway = "x.x.x.1"
+$dnsServer1 = "x.x.x.1"
+$dnsServer2 = "x.x.x.2"
+$leaseTime = "4:00:00"
+
+Add-DhcpServerv4Scope -Name "Scope1" -StartRange $rangeStart -EndRange $rangeEnd -SubnetMask $mask -State Active
+Set-DhcpServerv4OptionValue -ScopeId $subnet -Router $gateway -DnsServer $dnsServer1, $dnsServer2
+
+# Configure DHCP failover
+$partnerServer = "x.x.x.2"
+Add-DhcpServerv4Failover -ComputerName "AD1" -PartnerServer $partnerServer -Name "Failover1" -Mode LoadBalance -LoadBalancePercent 50 -SharedSecret "YourSecret"
+2.2 Seadista DHCP serveri staatilised lease'd
+powershell
+ 
+# Add static leases
+Add-DhcpServerv4Reservation -ScopeId $subnet -IPAddress "x.x.x.10" -ClientId "MAC_ADDRESS_1" -Description "Windows Client"
+Add-DhcpServerv4Reservation -ScopeId $subnet -IPAddress "x.x.x.11" -ClientId "MAC_ADDRESS_2" -Description "Linux Client"
+Samm 3: DNS Serveri seadistamine
+3.1 DNS kirjed Linuxi serverite jaoks
+powershell
+ 
+Add-DnsServerResourceRecordA -Name "linux1" -ZoneName "oige.ee" -IPv4Address "x.x.x.20"
+Add-DnsServerResourceRecordA -Name "linux2" -ZoneName "oige.ee" -IPv4Address "x.x.x.21"
+Samm 4: OU-de ja kasutajate loomine
+4.1 OU-de loomine
+powershell
+ 
+# Create OUs
+New-ADOrganizationalUnit -Name "Kasutajad" -Path "DC=oige,DC=ee"
+New-ADOrganizationalUnit -Name "Arvutid" -Path "DC=oige,DC=ee"
+New-ADOrganizationalUnit -Name "Personal" -Path "DC=oige,DC=ee"
+4.2 Kasutaja loomine ja lisamine gruppi
+powershell
+ 
+# Create user Haldur and add to Domain Admins group
+$securePassword = ConvertTo-SecureString "YourSecurePassword" -AsPlainText -Force
+New-ADUser -Name "Haldur" -AccountPassword $securePassword -Enabled $true -Path "OU=Kasutajad,DC=oige,DC=ee"
+Add-ADGroupMember -Identity "Domain Admins" -Members "Haldur"
+4.3 Kasutajate importimine CSV failist
+powershell
+ 
+# Example CSV file content:
+# SamAccountName,FirstName,LastName,OU
+# jsmith,John,Smith,Kasutajad
+
+Import-Csv -Path "C:\path\to\kasutajad.csv" | ForEach-Object {
+    $password = ConvertTo-SecureString "UserDefaultPassword" -AsPlainText -Force
+    New-ADUser -SamAccountName $_.SamAccountName -GivenName $_.FirstName -Surname $_.LastName -AccountPassword $password -Enabled $true -Path "OU=$($_.OU),DC=oige,DC=ee"
+}
+Samm 5: GPO loomine
+powershell
+ 
+# Create GPO for notification
+New-GPO -Name "Teade" | New-GPLink -Target "OU=Personal,DC=oige,DC=ee"
+
+# Configure GPO to display message
+$gpo = Get-GPO -Name "Teade"
+$gpoId = $gpo.Id
+$regPath = "HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System"
+Set-GPRegistryValue -Guid $gpoId -Key $regPath -ValueName "LegalNoticeCaption" -Type String -Value "Ettevõtte Turvapoliitika"
+Set-GPRegistryValue -Guid $gpoId -Key $regPath -ValueName "LegalNoticeText" -Type String -Value "Arvuti kasutamisel tuleb järgida ettevõtte turvapoliitikat ja arvuti kasutamise eeskirja."
+Samm 6: IIS veebiserveri ja sisuhaldussüsteemi paigaldus
+6.1 IIS rolli paigaldamine
+powershell
+ 
+# Install IIS role
+Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+6.2 Sisuhaldussüsteemi paigaldamine ja seadistamine
+Laadige alla ja paigaldage soovitud sisuhaldussüsteem (nt. WordPress, Joomla jne.)
+Ekstraktige ja paigutage sisuhaldussüsteem IIS veebijuure kataloogi, näiteks C:\inetpub\wwwroot\siseveeb
+6.3 SSL sertifikaadi loomine ja paigaldamine
+powershell
+ 
+# Generate a self-signed SSL certificate
+$cert = New-SelfSignedCertificate -DnsName "siseveeb.oige.ee", "siseportaal.oige.ee" -CertStoreLocation "cert:\LocalMachine\My"
+
+# Bind SSL certificate to the IIS site
+New-WebBinding -Name "Default Web Site" -Protocol "https" -Port 443 -SslFlags 1
+$certHash = $cert.Thumbprint
+$siteName = "Default Web Site"
+netsh http add sslcert ipport=0.0.0.0:443 certhash=$certHash appid="{00112233-4455-6677-8899-AABBCCDDEEFF}"
+6.4 CNAME kirjed DNS serveris
+powershell
+ 
+# Add CNAME records
+Add-DnsServerResourceRecordCName -Name "siseportaal" -HostNameAlias "AD1.oige.ee" -ZoneName "oige.ee"
+Add-DnsServerResourceRecordCName -Name "siseveeb" -HostNameAlias "AD1.oige.ee" -ZoneName "oige.ee"
+Samm 7: Testimine ja dokumenteerimine
+Testige AD domeeni kontrollerite toimivust, kasutajate loomist ja OU-de struktuuri.
+Kontrollige DHCP serveri IP aadresside jagamist ja failover'i toimivust.
+Veenduge, et kõik DNS kirjed on korrektsed ja lahenevad õigesti.
+Testige veebiserveri ja SSL sertifikaadi toimivust.
+Dokumenteerige kõik seadistamise ja testimise sammud.
+Kokkuvõte
+See terviklahendus sisaldab AD domeeni loomist, DHCP serveri seadistamist failover'iga, DNS serveri seadistamist, kasutajate ja OU-de loomist, GPO loomist ning IIS veebiserveri ja sisuhaldussüsteemi seadistamist. Iga sammu puhul on lisatud vajalikud PowerShell käsud, mida saate täita
