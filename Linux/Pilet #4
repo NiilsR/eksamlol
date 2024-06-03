@@ -1,0 +1,255 @@
+Samm 1: Paigalda vajalikud paketid
+bash
+ 
+#!/bin/bash
+
+# Update and install necessary packages
+sudo apt update
+sudo apt install -y apache2 php libapache2-mod-php mysql-server php-mysql phpmyadmin certbot python3-certbot-apache ufw zip
+
+# Enable required Apache modules
+sudo a2enmod ssl
+sudo a2enmod rewrite
+sudo systemctl restart apache2
+
+# Configure UFW to allow HTTP, HTTPS, and SSH
+sudo ufw allow 'Apache Full'
+sudo ufw allow OpenSSH
+sudo ufw enable
+Samm 2: Seadista MySQL ja PHPMyAdmin
+bash
+ 
+#!/bin/bash
+
+# Secure MySQL installation
+sudo mysql_secure_installation
+
+# Configure PHPMyAdmin to be accessible only from localhost
+sudo tee /etc/apache2/conf-available/phpmyadmin.conf <<EOL
+<Directory /usr/share/phpmyadmin>
+    Options FollowSymLinks
+    DirectoryIndex index.php
+
+    <IfModule mod_php5.c>
+        <IfModule mod_authz_core.c>
+            <RequireAny>
+                Require local
+            </RequireAny>
+        </IfModule>
+        <IfModule !mod_authz_core.c>
+            Order Deny,Allow
+            Deny from All
+            Allow from 127.0.0.1
+        </IfModule>
+    </IfModule>
+</Directory>
+EOL
+
+sudo a2enconf phpmyadmin
+sudo systemctl reload apache2
+Samm 3: Konfigureeri SSL sertifikaat
+bash
+ 
+#!/bin/bash
+
+# Generate SSL certificate using Certbot
+sudo certbot --apache -d yourdomain.com
+
+# Ensure Apache loads SSL configuration
+sudo systemctl restart apache2
+Samm 4: Keela kataloogide sirvimine ja seadista Apache
+bash
+ 
+#!/bin/bash
+
+# Disable directory browsing
+sudo tee /etc/apache2/conf-available/security.conf <<EOL
+<Directory /var/www/>
+    Options -Indexes
+</Directory>
+EOL
+
+sudo a2enconf security
+sudo systemctl reload apache2
+Samm 5: Loo veebirakenduse andmebaas
+bash
+ 
+#!/bin/bash
+
+# Create database and user for the application
+sudo mysql -e "CREATE DATABASE uuemoisa_miil;"
+sudo mysql -e "CREATE USER 'miil_user'@'localhost' IDENTIFIED BY 'miil_password';"
+sudo mysql -e "GRANT ALL PRIVILEGES ON uuemoisa_miil.* TO 'miil_user'@'localhost';"
+sudo mysql -e "FLUSH PRIVILEGES;"
+Samm 6: Loo veebilehe struktuur ja varukoopiate skript
+bash
+ 
+#!/bin/bash
+
+# Create website structure
+sudo mkdir -p /var/www/uuemoisa_miil
+cd /var/www/uuemoisa_miil
+
+# Create basic Bootstrap template
+sudo tee index.php <<EOL
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uuemõisa Miil 2025</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="#">Uuemõisa Miil 2025</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav">
+                <li class="nav-item active">
+                    <a class="nav-link" href="#">Avaleht</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">Galerii</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#">Kontakt</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="jumbotron mt-4">
+            <h1 class="display-4">Tere tulemast Uuemõisa Miil 2025 kodulehele!</h1>
+            <p class="lead">Registreeru üritusele allpool oleva vormi kaudu.</p>
+        </div>
+        <form action="register.php" method="POST">
+            <div class="form-group">
+                <label for="first_name">Eesnimi</label>
+                <input type="text" class="form-control" id="first_name" name="first_name" required>
+            </div>
+            <div class="form-group">
+                <label for="last_name">Perekonnanimi</label>
+                <input type="text" class="form-control" id="last_name" name="last_name" required>
+            </div>
+            <div class="form-group">
+                <label for="class">Võistlusklass</label>
+                <select class="form-control" id="class" name="class" required>
+                    <option value="children">Lapsed</option>
+                    <option value="youth">Noored</option>
+                    <option value="women">Naised</option>
+                    <option value="men">Mehed</option>
+                    <option value="seniors">Seeniorid</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" class="form-control" id="email" name="email" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Registreeru</button>
+        </form>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
+EOL
+
+# Create register.php to handle form submissions
+sudo tee register.php <<EOL
+<?php
+\$servername = "localhost";
+\$username = "miil_user";
+\$password = "miil_password";
+\$dbname = "uuemoisa_miil";
+
+// Create connection
+\$conn = new mysqli(\$servername, \$username, \$password, \$dbname);
+
+// Check connection
+if (\$conn->connect_error) {
+    die("Connection failed: " . \$conn->connect_error);
+}
+
+\$first_name = \$_POST['first_name'];
+\$last_name = \$_POST['last_name'];
+\$class = \$_POST['class'];
+\$email = \$_POST['email'];
+
+\$sql = "SELECT * FROM participants WHERE email = '\$email'";
+\$result = \$conn->query(\$sql);
+
+if (\$result->num_rows > 0) {
+    echo "Selle emailiga inimene on juba registreeritud.";
+} else {
+    \$sql = "INSERT INTO participants (first_name, last_name, class, email)
+    VALUES ('\$first_name', '\$last_name', '\$class', '\$email')";
+
+    if (\$conn->query(\$sql) === TRUE) {
+        echo "Registreerimine õnnestus!";
+    } else {
+        echo "Viga: " . \$sql . "<br>" . \$conn->error;
+    }
+}
+
+\$conn->close();
+?>
+EOL
+
+# Create backup script
+sudo tee /usr/local/bin/backup.sh <<EOL
+#!/bin/bash
+# Define backup directory and filename
+BACKUP_DIR="/var/backups"
+WEB_BACKUP="\$BACKUP_DIR/web_\$(date +%F_%H-%M-%S).zip"
+DB_BACKUP="\$BACKUP_DIR/db_\$(date +%F_%H-%M-%S).sql"
+
+# Backup website files
+zip -r \$WEB_BACKUP /var/www/uuemoisa_miil
+
+# Backup MySQL database
+mysqldump -umiil_user -pmiil_password uuemoisa_miil > \$DB_BACKUP
+
+# Delete backups older than 7 days
+find \$BACKUP_DIR -type f -mtime +7 -exec rm {} \;
+EOL
+
+# Make backup script executable
+sudo chmod +x /usr/local/bin/backup.sh
+
+# Schedule backup script to run every 2 hours
+(crontab -l 2>/dev/null; echo "0 */2 * * * /usr/local/bin/backup.sh") | crontab -
+Samm 7: Lisa andmebaasi struktuur
+bash
+ 
+#!/bin/bash
+
+# Create participants table
+sudo mysql -umiil_user -pmiil_password uuemoisa_miil <<EOL
+CREATE TABLE participants (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    class VARCHAR(20) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+EOL
+Samm 8: Dokumentatsioon ja koodi üleslaadimine GitHubi
+Loo GitHubi repo ja laadi kood üles:
+
+bash
+ 
+#!/bin/bash
+
+# Initialize a new Git repository and push to GitHub
+cd /var/www/uuemoisa_miil
+git init
+git remote add origin https://github.com/yourusername/uuemoisa_miil.git
+git add .
+git commit -m "Initial commit"
+git push -u origin master
+Dokumenteeri kõik tehtud sammud ja veendu, et GitHubi repo on avalik. Dokumentatsiooni võid luua README.md faili samas GitHubi repos. Veendu, et kõik juhised on selged ja täpsed, et ka teised süsteemiadministraatorid saaksid neid järgida.
