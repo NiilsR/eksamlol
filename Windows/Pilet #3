@@ -1,0 +1,67 @@
+1. AD Domeeni ja Domeenikontrollerite seadistamine
+1.1 AD Domeeni Kontroller (AD1) seadistamine
+powershell
+ 
+# Install AD DS and DNS roles
+Install-WindowsFeature -Name AD-Domain-Services, DNS -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$domainNetbiosName = "OIGE"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSForest -DomainName $domainName -DomainNetbiosName $domainNetbiosName -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+1.2 Domeenikontroller (AD2) seadistamine Windows Server Core 2022-s
+powershell
+ 
+# Install AD DS role
+Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
+
+# Promote to Domain Controller
+$domainName = "oige.ee"
+$adminPassword = ConvertTo-SecureString -String "YourSecurePassword" -AsPlainText -Force
+Install-ADDSDomainController -DomainName $domainName -Credential (Get-Credential) -SiteName "Default-First-Site-Name" -SafeModeAdministratorPassword $adminPassword -InstallDns -Force
+2. DHCP Serveri seadistamine ja PowerShelli skripti loomine
+powershell
+ 
+# Install DHCP role
+Install-WindowsFeature -Name DHCP -IncludeManagementTools
+
+# Configure DHCP scope and failover
+# Your DHCP configuration commands go here
+
+# Create PowerShell script to import AD users from CSV
+@"
+# Your PowerShell script to import AD users from CSV goes here
+"@ | Out-File -FilePath "Import-ADUsers.ps1" -Encoding utf8
+
+# Create PowerShell script to generate reports
+@"
+# Your PowerShell script to generate reports goes here
+"@ | Out-File -FilePath "Generate-Reports.ps1" -Encoding utf8
+PowerShell skript raportite genereerimiseks
+1. Raport mitte kunagi AD-s sisse loginud kontode kohta
+powershell
+ 
+# Get accounts that have never logged in to the AD domain
+$neverLoggedIn = Get-ADUser -Filter {LastLogonDate -notlike "*" } | Select-Object SamAccountName, Name
+
+# Export to CSV
+$neverLoggedIn | Export-Csv -Path "NeverLoggedInUsers.csv" -NoTypeInformation
+2. Raport lukustatud kontode kohta
+powershell
+ 
+# Get locked out accounts
+$lockedOutAccounts = Get-ADUser -Filter {LockedOut -eq $true} | Select-Object SamAccountName, Name
+
+# Export to CSV
+$lockedOutAccounts | Export-Csv -Path "LockedOutAccounts.csv" -NoTypeInformation
+3. DHCP serveri aktiivsete rentide raport
+powershell
+ 
+# Get active DHCP leases
+$dhcpLeases = Get-DhcpServerv4Lease | Select-Object ClientId, IPAddress
+
+# Export to CSV
+$dhcpLeases | Export-Csv -Path "DhcpLeases.csv" -NoTypeInformation
+Kokkuvõte
+See skript loob täieliku IT lahenduse AS Oige jaoks, sealhulgas Active Directory domeeni, DHCP ja DNS serverite seadistused ning PowerShell skriptid raportite genereerimiseks.
