@@ -1,0 +1,88 @@
+Samm 1: Paigalda FOG keskkond
+ 
+#!/bin/bash
+
+# Install dependencies
+sudo apt update
+sudo apt install -y apache2 php php7.4 php7.4-cli php7.4-fpm php7.4-mbstring php7.4-intl php7.4-mysql php7.4-zip php7.4-gd php7.4-curl mariadb-server mariadb-client nfs-kernel-server tftpd-hpa vsftpd dnsmasq isc-dhcp-server
+
+# Download and install FOG
+wget https://github.com/FOGProject/fogproject/archive/refs/tags/1.5.9.tar.gz
+tar -xvzf 1.5.9.tar.gz
+cd fogproject-1.5.9/bin
+sudo ./installfog.sh
+
+# Enable necessary ports in the firewall
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 2049/tcp
+sudo ufw allow 111/tcp
+sudo ufw allow 32768/tcp
+sudo ufw allow 49152:65535/tcp
+sudo ufw allow 49152:65535/udp
+sudo ufw enable
+Samm 2: Seadista DHCP server FOG keskkonnaga koos toimima
+
+ 
+#!/bin/bash
+
+# Configure DHCP server for FOG
+sudo cp /etc/dhcp/dhcpd.conf /etc/dhcp/dhcpd.conf.bak
+sudo tee /etc/dhcp/dhcpd.conf <<EOL
+default-lease-time 600;
+max-lease-time 7200;
+option domain-name "oige.ee";
+option domain-name-servers ns1.oige.ee, ns2.oige.ee;
+authoritative;
+subnet 192.168.1.0 netmask 255.255.255.0 {
+    range 192.168.1.100 192.168.1.200;
+    option routers 192.168.1.1;
+    next-server 192.168.1.10;
+    filename "pxelinux.0";
+}
+EOL
+
+sudo systemctl restart isc-dhcp-server
+Samm 3: Lisa FOG serverile kirje DNS-isse
+ 
+#!/bin/bash
+
+# Add DNS entry for fog server
+sudo tee -a /etc/hosts <<EOL
+192.168.1.10 fog.oige.ee
+EOL
+Samm 4: Loo ja klooni etalon masin FOG-iga
+Loo FOG-i admin paneelil Windowsi etalon masinast kettapilt.
+Lisa Windowsi masinad FOG-i gruppi ja testeeri importimist CSV või XLS failist.
+Samm 5: Tee ülemuse masina alglaadur korda ja loo varundusskript
+
+ 
+#!/bin/bash
+
+# Install necessary tools
+sudo apt update
+sudo apt install -y grub2
+
+# Fix GRUB bootloader (assuming single Linux OS)
+sudo grub-install /dev/sda
+sudo update-grub
+
+# Format and mount new hard drive
+sudo mkfs.ext4 /dev/sdb
+sudo mkdir -p /mnt/backup
+sudo mount /dev/sdb /mnt/backup
+
+# Create backup script
+sudo tee /usr/local/bin/backup_home.sh <<EOL
+#!/bin/bash
+tar -czf /mnt/backup/home_backup_\$(date +\%F_\%T).tar.gz /home/ulemuse_kasutaja
+EOL
+
+# Make script executable
+sudo chmod +x /usr/local/bin/backup_home.sh
+
+# Schedule the script with cron
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/backup_home.sh") | crontab -
+Samm 6: Dokumenteeri protsess
+Dokumenteerige kõik sammud ja käsud, mida olete teinud, et saaksite jagada seda teiste süsteemiadministraatoritega. Pange tähele, et kõik skriptis tehtud muudatused peavad olema läbi viidud administraatoriõigustes.
